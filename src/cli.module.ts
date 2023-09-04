@@ -50,7 +50,8 @@ async function bootstrap() {
 
     const events = (await tokenContract.queryFilter(filter, 
       block, 
-      block)).filter(e => e.transactionHash === args.tx)
+      block))
+      .filter(e => e.transactionHash === args.tx)
         
     if (args.action === 'tweet') {
       const results = await Promise.all(

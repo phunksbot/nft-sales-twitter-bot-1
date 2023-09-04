@@ -1,15 +1,24 @@
-import {
-  Client,
-  MessageAttachment,
-  MessageEmbed,
-  TextChannel,
-} from 'discord.js';
 import { config } from '../config';
+import { Client, MessageAttachment, MessageEmbed, TextChannel } from "discord.js";
+import { Routes } from "discord-api-types/v10";
+import { REST } from "@discordjs/rest";
+
+const discordCommands = []
+let inited = false
 
 export default class DiscordClient {
-  client: Client;
+  
+  getDiscordCommands() {
+    return discordCommands
+  }
+  
   channels: TextChannel[] = [];
   setup: boolean;
+  client: Client;
+
+  getClient():Client {
+    return this.client
+  }
 
   init() {
     if (!process.env.DISCORD_TOKEN) return;
@@ -21,7 +30,23 @@ export default class DiscordClient {
           (await this.client.channels.fetch(channel)) as TextChannel,
         );
     });
-    this.client.login(process.env.DISCORD_TOKEN);
+    if (!inited) {
+      inited = true
+      this.client.login(process.env.DISCORD_TOKEN);
+
+      setTimeout(async () => {
+        const rest = new REST().setToken(process.env.DISCORD_TOKEN);
+      
+        const guildIds = config.discord_guild_ids.split(',')
+    
+        guildIds.forEach(async (guildId) => {
+          await rest.put(
+            Routes.applicationGuildCommands(config.discord_client_id, guildId),
+            { body: discordCommands },
+          );    
+        })
+      }, 2000)      
+    }
     this.setup = true;
   }
 

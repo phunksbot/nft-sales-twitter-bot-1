@@ -59,8 +59,8 @@ export class PhunksBidService extends BaseService {
     // uncomment this to test the plugin
     return
     tokenContract.queryFilter(filter, 
-      17936542, 
-      17936542).then(async (events:any) => {
+      17987050, 
+      17987050).then(async (events:any) => {
       for (const event of events) {
         if (event?.args.length < 3) return
         const from = event?.args[2];

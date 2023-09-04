@@ -15,9 +15,12 @@ import { EUploadMimeType } from 'twitter-api-v2';
 import DiscordClient from './clients/discord';
 import { createLogger } from './logging.utils';
 import { HexColorString, MessageAttachment, MessageEmbed } from 'discord.js';
+import { REST } from '@discordjs/rest';
+import { Routes } from 'discord-api-types/v10';
 
 export const alchemyAPIUrl = 'https://eth-mainnet.alchemyapi.io/v2/';
 export const alchemyAPIKey = process.env.ALCHEMY_API_KEY;
+
 //const provider = ethers.getDefaultProvider(alchemyAPIUrl + alchemyAPIKey);
 const provider = global.providerForceHTTPS ? 
   ethers.getDefaultProvider(process.env.GETH_NODE_ENDPOINT_HTTP) :
@@ -84,6 +87,10 @@ export class BaseService {
 
   initDiscordClient() {
     this.discordClient.init()
+  }
+
+  getDiscordCommands() {
+    return this.discordClient.getDiscordCommands()
   }
 
   getWeb3Provider() {

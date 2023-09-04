@@ -17,7 +17,7 @@ export const config = {
   contract_address: '0xf07468eAd8cf26c752C676E43C814FEe9c8CF402',
   nftx_vault_contract_address: '0xB39185e33E8c28e0BB3DbBCe24DA5dEA6379Ae91',
   // Enter the block where your contract has been created
-  statistic_initial_block: 12674389,
+  statistic_initial_block: 18035326,
   //
   discord_channels: '919681244537716767,968448656221011981',
   discord_client_id: '1139547496033558561',
@@ -47,9 +47,9 @@ export const config = {
   // <txHash> =========================== The transaction hash //
   // <from> ===================================== From address //
   // <to> ========================================= To address //
-  ownedTokensMessageDiscord: 'Here are the <count> tokens owned by the wallet: `<wallet>`!\n\n-- Indexing in progress, last event indexed: `<last_event>`',
+  ownedTokensMessageDiscord: 'Here are the <count> tokens owned by the wallet(s): <wallet>!\n\n-- Indexing in progress, last event indexed: `<last_event>`',
   graphStatisticsMessageDiscord: 'Here is the graph you requested (wallet: `<wallet>)`!\n\n-- Indexing in progress, last event indexed: `<last_event>`',
-  userStatisticsMessageDiscord: 'Hey, here are the stats you requested about `<wallet>`!\n\n⏳ It holded a Cryptophunks for the first time <holder_since> days ago.\n💰 It executed <tx_count> transactions involving phunks with a total volume of <volume>Ξ.\n🧮 It is currently holding <owned_tokens> tokens.\n\n-- Indexing in progress, last event indexed: `<last_event>`',
+  userStatisticsMessageDiscord: 'Hey, here are the stats you requested about `<wallet>` <user_mention>!\n\n⏳ It holded a Cryptophunks for the first time <holder_since> days ago.\n💰 It executed <tx_count> transactions involving phunks with a total volume of <volume>Ξ.\n🧮 It is currently holding <owned_tokens> tokens.\n\n-- Indexing in progress, last event indexed: `<last_event>`',
   globalStatisticsMessageDiscord: 'Hey, here are the volume per platform (time window: <window>) ! 💰\n\n```<per_platform_stats>```\n— Indexing in progress, last event indexed: `<last_event>`',
   saleMessageDiscord: '[Phunk #<tokenId>](<tweetLink>) was flipped for [<ethPrice> (<fiatPrice>)](<https://etherscan.io/tx/<txHash>>)\nfrom: [<from>](https://notlarvalabs.com/cryptophunks/phunkbox?address=<initialFrom>)\nto: [<to>](https://notlarvalabs.com/cryptophunks/phunkbox?address=<initialTo>)',
   saleMessage: '🚨 Cryptophunks #<tokenId> was sold for 💰 <ethPrice> (<fiatPrice>)\n\nfrom: <from>\nto: <to>\n\nhttps://etherscan.io/tx/<txHash>\nhttps://opensea.io/assets/0xf07468ead8cf26c752c676e43c814fee9c8cf402/<tokenId>\nhttps://looksrare.org/collections/0xf07468ead8cf26c752c676e43c814fee9c8cf402/<tokenId>\n',
@@ -69,9 +69,6 @@ export const config = {
   includeFreeMint: false,
   gifModuleMentionnedUserId: 1540024208255754241, 
   parsers: [
-    new BlurIOBasicParser(),
-    new BlurIOSalesParser(),
-    new BlurIOSweepParser(), // must be the last blurio parsers
     new OpenSeaWyvernParser(),
     new OpenSeaSeaportParser(),
     new LooksRareParser(),
@@ -81,5 +78,9 @@ export const config = {
     new RaribleParser(),
     new CargoParser(),
     new NFTXParser(),
+    new BlurIOBasicParser(),
+    new BlurIOSalesParser(),
+    new BlurIOSweepParser(), // must be the last blurio parsers
   ] as LogParser[],
+  daoModuleListenAddress: '192.168.0.32:3000' 
 };
