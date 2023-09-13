@@ -470,9 +470,10 @@ Amount:   ${'Ξ'+(Math.floor(r.amount*100)/100).toFixed(2)}`)
     });      
   }
 
+
 getOwnedTokens(wallets:string[]) {
   for (let i = 0; i < wallets.length; i++) {
-    wallets[i] = `'${wallets[i]}'`
+    wallets[i] = `'${wallets[i].toLowerCase()}'`
   }
   const formattedWallets = wallets.join(",")
   const sql = `select token_id,

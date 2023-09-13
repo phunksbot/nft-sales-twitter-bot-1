@@ -22,6 +22,13 @@ export const config = {
   discord_channels: '919681244537716767,968448656221011981',
   discord_client_id: '1139547496033558561',
   discord_guild_ids: '880485569652740136,968448656221011978',
+  dao_roles: [
+    {
+      guildId: '880485569652740136',
+      roleId: '1157766800629563452',
+      minOwnedCount: 1
+    }
+  ],
   discord_empty_wallet_gifs: ['https://media.tenor.com/J3mNIbj6A4wAAAAd/empty-shelves-john-travolta.gif', 'https://media.tenor.com/NteLNqDJB2QAAAAd/out-of-stock-this-is-happening.gif'],
   //
   // uncomment the 2 lines above to use local images instead of retrieving images from ipfs for each tweet

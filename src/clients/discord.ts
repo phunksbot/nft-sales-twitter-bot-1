@@ -22,7 +22,7 @@ export default class DiscordClient {
 
   init() {
     if (!process.env.DISCORD_TOKEN) return;
-    this.client = new Client({ intents: [] });
+    this.client = new Client({ intents: ['GUILD_MEMBERS'] });
     this.client.once('ready', async (c) => {
       const channels = config.discord_channels.split(',');
       for (let channel of channels)

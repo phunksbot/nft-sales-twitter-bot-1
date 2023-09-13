@@ -17,8 +17,7 @@ import { join } from 'path';
 
 export const providers = [
   Erc721SalesService, 
-  DAOService,
-  PhunksErc721SpecialisedSalesService,
+  //PhunksErc721SpecialisedSalesService,
   ////
   // Below is a simple example of how to create and plug a custom 
   // extension to the bot
@@ -28,6 +27,7 @@ export const providers = [
   // PhunksAuctionHouseService,
   // PhunksAuctionFlywheelService, 
   StatisticsService,
+  DAOService,
   // PhunksGifTwitterService
 ]
 

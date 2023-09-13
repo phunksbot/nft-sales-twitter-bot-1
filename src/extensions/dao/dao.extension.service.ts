@@ -12,8 +12,12 @@ import { BindRequestDto } from './models';
 import { SignatureError } from './errors';
 import { catchError, firstValueFrom } from 'rxjs';
 import { AxiosError } from 'axios';
+import { StatisticsService } from '../statistics.extension.service';
+import { ModuleRef } from '@nestjs/core';
+import { providers } from 'src/app.module';
+import { GuildMember } from 'discord.js';
 
-const logger = createLogger('statistics.service')
+const logger = createLogger('dao.extension.service')
 
 @Injectable()
 export class DAOService extends BaseService {
@@ -26,13 +30,18 @@ export class DAOService extends BaseService {
   currentBlock: number;
 
   constructor(
-    protected readonly http: HttpService
+    protected readonly http: HttpService,
+    private readonly moduleRef: ModuleRef
   ) {
     super(http)
     logger.info('created DAOService')
     this.start()
     this.discordClient.init()
     this.registerCommands()
+
+    if (config.dao_roles.length) {
+      setTimeout(() => this.grantRoles(), 10000)
+    }
   }
 
   async start() {
@@ -49,6 +58,40 @@ export class DAOService extends BaseService {
 
   async bounded(username:string) {
 
+  }
+
+  async grantRoles() {
+    if (providers.indexOf(StatisticsService)) {
+      logger.info(`grantRoles()`)
+      const statisticsService = this.moduleRef.get(StatisticsService);
+
+      for (let conf of config.dao_roles) {
+        const guild = await this.discordClient.client.guilds.fetch(conf.guildId)
+        const role = await guild.roles.fetch(conf.roleId)
+        const members = await guild.members.fetch({ force: true })
+        for (const m of members) {
+          const member = m[1]
+          const users = this.getUsersByDiscordUserId(member.id.toString())
+          if (users.length) {
+            const owned = await statisticsService.getOwnedTokens(users.map(u => u.web3_public_key))
+            if (owned.length >= conf.minOwnedCount) {
+              await member.roles.add(role)  
+            }  else {
+              await member.roles.remove(role)
+            }
+          } else {
+            await member.roles.remove(role)
+          }
+        }
+
+        setTimeout(() => this.grantRoles(), 60000*30)
+      }      
+    }
+    /*
+    guilds.roles.cache.find(role => role.name === "role name");
+    member.roles.add(role);
+    */
+    
   }
 
   async bindAccount(request: BindRequestDto) {
