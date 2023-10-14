@@ -24,7 +24,7 @@ const logger = createLogger('statistics.service')
 
 @Injectable()
 export class StatisticsService extends BaseService {
-  
+
   provider = this.getWeb3Provider();
   db = new Database(`${process.env.WORK_DIRECTORY || './'}db.db` /*, { verbose: logger.info } */);  
   insert: any;
@@ -39,12 +39,13 @@ export class StatisticsService extends BaseService {
   ) {
     super(http)
     logger.info('creating StatisticsService')
-    this.discordClient.init()
+    this.discordClient.init(() => {
+      this.registerCommands()
+    })
     
     if (!global.doNotStartAutomatically) {
       this.start()
     }
-    this.registerCommands()
   }
 
   async registerCommands() {
@@ -155,7 +156,6 @@ export class StatisticsService extends BaseService {
           .setDescription('Restrict to the given wallet')
       )
 
-    const guildIds = config.discord_guild_ids.split(',')
     const commands = [
       status.toJSON(),
       userStats.toJSON(), 
@@ -170,7 +170,7 @@ export class StatisticsService extends BaseService {
     }
     this.getDiscordCommands().push(...commands)
 
-    this.discordClient.getClient().on('interactionCreate', async (interaction) => {
+    const interaction = async (interaction) => {
       try {
         if (!interaction.isCommand()) return;
         if ('sample' === interaction.commandName) {
@@ -467,28 +467,42 @@ Amount:   ${'Ξ'+(Math.floor(r.amount*100)/100).toFixed(2)}`)
       } catch (err) {
         logger.info(err)
       }
-    });      
+    }
+    this.getDiscordInteractionsListeners().push(interaction)
   }
 
 
-getOwnedTokens(wallets:string[]) {
-  for (let i = 0; i < wallets.length; i++) {
-    wallets[i] = `'${wallets[i].toLowerCase()}'`
+  getMintedTokens(wallets:string[]) {
+    for (let i = 0; i < wallets.length; i++) {
+      wallets[i] = `'${wallets[i].toLowerCase()}'`
+    }
+    const formattedWallets = wallets.join(",")
+    const sql = `select distinct token_id
+    from events
+    where from_wallet = '0x0000000000000000000000000000000000000000' 
+    and lower(to_wallet) IN (`+ formattedWallets +`)`
+    const result = this.db.prepare(sql).all({})
+    return result
   }
-  const formattedWallets = wallets.join(",")
-  const sql = `select token_id,
-  ceil(JULIANDAY('now') -
-  JULIANDAY((select max(tx_date) from events e2 where e2.token_id = a.token_id))) owned_since
-  from (select distinct token_id from 
-    (select distinct token_id,
-    last_value(to_wallet) over ( 
-    partition by token_id order by tx_date 
-    RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING ) owner
-    from events) a
-  where lower(a.owner) IN (`+ formattedWallets +`)) a`
-  const result = this.db.prepare(sql).all({})
-  return result
-}
+
+  getOwnedTokens(wallets:string[]) {
+    for (let i = 0; i < wallets.length; i++) {
+      wallets[i] = `'${wallets[i].toLowerCase()}'`
+    }
+    const formattedWallets = wallets.join(",")
+    const sql = `select token_id,
+    ceil(JULIANDAY('now') -
+    JULIANDAY((select max(tx_date) from events e2 where e2.token_id = a.token_id))) owned_since
+    from (select distinct token_id from 
+      (select distinct token_id,
+      last_value(to_wallet) over ( 
+      partition by token_id order by tx_date 
+      RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING ) owner
+      from events) a
+    where lower(a.owner) IN (`+ formattedWallets +`)) a`
+    const result = this.db.prepare(sql).all({})
+    return result
+  }
 
   getPlatformStats(platform:string, stats:any[]) {
     const r = stats.filter(s => s.platform === platform)

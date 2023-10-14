@@ -89,6 +89,10 @@ export class BaseService {
     this.discordClient.init()
   }
 
+  getDiscordInteractionsListeners() {
+    return this.discordClient.getInteractionsListener()
+  }
+
   getDiscordCommands() {
     return this.discordClient.getDiscordCommands()
   }

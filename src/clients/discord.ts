@@ -5,6 +5,8 @@ import { REST } from "@discordjs/rest";
 
 const discordCommands = []
 let inited = false
+const callbacks: Function[] = []
+const interactionsListener:any[] = [];
 
 export default class DiscordClient {
   
@@ -20,32 +22,43 @@ export default class DiscordClient {
     return this.client
   }
 
-  init() {
+  getInteractionsListener() {
+    return interactionsListener
+  }
+
+  init(callback:Function=undefined) {
     if (!process.env.DISCORD_TOKEN) return;
-    this.client = new Client({ intents: ['GUILD_MEMBERS'] });
+    this.client = new Client({ intents: ['GUILD_MEMBERS', 'MESSAGE_CONTENT'] });
     this.client.once('ready', async (c) => {
       const channels = config.discord_channels.split(',');
       for (let channel of channels)
         this.channels.push(
           (await this.client.channels.fetch(channel)) as TextChannel,
         );
+      const rest = new REST().setToken(process.env.DISCORD_TOKEN);
+    
+      const guildIds = config.discord_guild_ids.split(',')
+  
+      if (callback) callback()
+      if (callbacks.length) callbacks.forEach(c => c())
+
+      this.client.on('interactionCreate', (interaction) => {
+        for (const listener of interactionsListener) {
+          listener(interaction)
+        }
+      })
+      guildIds.forEach(async (guildId) => {
+        await rest.put(
+          Routes.applicationGuildCommands(config.discord_client_id, guildId),
+          { body: discordCommands },
+        );    
+      })              
     });
     if (!inited) {
       inited = true
       this.client.login(process.env.DISCORD_TOKEN);
-
-      setTimeout(async () => {
-        const rest = new REST().setToken(process.env.DISCORD_TOKEN);
-      
-        const guildIds = config.discord_guild_ids.split(',')
-    
-        guildIds.forEach(async (guildId) => {
-          await rest.put(
-            Routes.applicationGuildCommands(config.discord_client_id, guildId),
-            { body: discordCommands },
-          );    
-        })
-      }, 2000)      
+    } else {
+      if (callback !== undefined) callbacks.push(callback)
     }
     this.setup = true;
   }
