@@ -81,7 +81,8 @@ export class DAOService extends BaseService {
         discord_guild_id text NOT NULL,
         discord_message_id text NOT NULL,
         description text NOT NULL,
-        until text NOT NULL
+        until text NOT NULL,
+        revealed boolean NOT NULL
       );`,
     ).run();
     this.db.prepare(
@@ -233,6 +234,23 @@ export class DAOService extends BaseService {
     logger.info('cleaned grace periods')
   }
 
+  async handleEndedPolls() {
+    const stmt = this.db.prepare(`
+      SELECT * FROM polls
+      WHERE until < datetime() AND revealed = FALSE
+    `)  
+    const all = stmt.all()
+    for (const row of all) {
+      console.log(row)
+      const guild = await this.discordClient.client.guilds.fetch(row.discord_guild_id)
+      const member = await guild.members.cache.get(row.discord_user_id)
+      const role = await guild.roles.cache.get(row.discord_role_id)
+      member.roles.remove(role)
+      this.removeGracePeriod(row.discord_guild_id, row.discord_user_id, row.discord_role_id)
+    }
+    logger.info('cleaned grace periods')
+  }
+
   removeGracePeriod(guildId: string, userId: string, roleId: string) {
     const stmt = this.db.prepare(`
       DELETE FROM grace_periods 
@@ -257,8 +275,8 @@ export class DAOService extends BaseService {
 
   createPoll(guildId:string, messageId:string, description:string, until:Date) {
     const stmt = this.db.prepare(`
-      INSERT INTO polls (discord_guild_id, discord_message_id, description, until)
-      VALUES (@guildId, @messageId, @description, @until)
+      INSERT INTO polls (discord_guild_id, discord_message_id, description, until, revealed)
+      VALUES (@guildId, @messageId, @description, @until, false)
     `)    
     stmt.run({
       guildId, messageId, description, until: format(until, "yyyy-MM-dd'T'HH:mm:ss'Z'")
