@@ -47,6 +47,7 @@ export class DAOService extends BaseService {
 
       if (config.dao_roles.length) {
         setTimeout(() => this.grantRoles(), 10000)
+        setTimeout(() => this.handleEndedPolls(), 5000)
       }
     })
   }
@@ -79,7 +80,9 @@ export class DAOService extends BaseService {
       `CREATE TABLE IF NOT EXISTS polls (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         discord_guild_id text NOT NULL,
+        discord_channel_id text NOT NULL,
         discord_message_id text NOT NULL,
+        discord_role_id text,
         description text NOT NULL,
         until text NOT NULL,
         revealed boolean NOT NULL
@@ -242,13 +245,27 @@ export class DAOService extends BaseService {
     const all = stmt.all()
     for (const row of all) {
       console.log(row)
-      const guild = await this.discordClient.client.guilds.fetch(row.discord_guild_id)
-      const member = await guild.members.cache.get(row.discord_user_id)
-      const role = await guild.roles.cache.get(row.discord_role_id)
-      member.roles.remove(role)
-      this.removeGracePeriod(row.discord_guild_id, row.discord_user_id, row.discord_role_id)
+      const votesStmt = this.db.prepare(`
+        SELECT vote_value, count(*) as count FROM poll_votes
+        WHERE discord_message_id = @messageId
+        group by 1
+      `)  
+      const votes = votesStmt.all({messageId: row.discord_message_id})
+      let message = `Vote ended, description: \n> ${row.description}\n\nResults:\n—\n`
+      votes.forEach(vote => {
+        message += `${vote.vote_value}\t${vote.count}\n`
+      });
+      message += `—\nVote ID: ${row.discord_message_id}\n`
+      
+      const channel = await this.discordClient.client.channels.cache.get(row.discord_channel_id) as TextChannel;
+      console.log(channel)
+      const voteMessage = await channel.messages.fetch(row.discord_message_id)
+      await voteMessage.edit(message)
+      await voteMessage.reactions.removeAll()
+      this.db.prepare(`UPDATE polls SET revealed = TRUE WHERE discord_message_id = @messageId`).run({messageId: row.discord_message_id})
     }
-    logger.info('cleaned grace periods')
+    logger.info('cleaned end polls')
+    setTimeout(() => this.handleEndedPolls(), 60000*10)
   }
 
   removeGracePeriod(guildId: string, userId: string, roleId: string) {
@@ -273,17 +290,29 @@ export class DAOService extends BaseService {
     })
   }
 
-  createPoll(guildId:string, messageId:string, description:string, until:Date) {
+  createPoll(guildId:string, channelId:string, messageId:string, roleId:string, description:string, until:Date) {
     const stmt = this.db.prepare(`
-      INSERT INTO polls (discord_guild_id, discord_message_id, description, until, revealed)
-      VALUES (@guildId, @messageId, @description, @until, false)
+      INSERT INTO polls (discord_guild_id, discord_channel_id, discord_message_id, discord_role_id, description, until, revealed)
+      VALUES (@guildId, @channelId, @messageId, @roleId, @description, @until, false)
     `)    
     stmt.run({
-      guildId, messageId, description, until: format(until, "yyyy-MM-dd'T'HH:mm:ss'Z'")
+      guildId, channelId, messageId, roleId, description, until: format(until, "yyyy-MM-dd'T'HH:mm:ss'Z'")
     })
   }
 
-  createPollVote(guildId:string, messageId:string, userId:string, value:string) {
+  async createPollVote(guildId:string, messageId:string, userId:string, value:string) {
+    const poll = this.db.prepare(`SELECT * FROM polls WHERE discord_message_id = @messageId`).get({messageId})
+    const guild = this.discordClient.client.guilds.cache.get(guildId)
+    const member = await guild.members.cache.get(userId)
+    if (poll.discord_role_id && !member.roles.cache.has(poll.discord_role_id)) {
+      try {
+        const dm = await member.createDM(true)
+        await dm.send("You don't have the required role to vote on this poll")
+      } catch (err) {
+        // ignored, dm disabled by user
+      }
+      return
+    }
     this.db.prepare(`
       DELETE FROM poll_votes WHERE 
       discord_guild_id = @guildId AND
@@ -345,6 +374,7 @@ export class DAOService extends BaseService {
           const channel = interaction.channel as TextChannel
           const description = interaction.options.get('description')?.value?.toString()
           const duration = interaction.options.get('duration')?.value
+          const roleRequired = interaction.options.get('role')?.value
           const until = new Date()
           until.setTime(new Date().getTime() + duration*60*60*1000)
           const message = await channel.send(`🗳️ • An admin just posted a new vote:\n—\n${description}\n—\nReact below to vote until the ${until.toLocaleDateString()} ${until.toLocaleTimeString()}`)
@@ -355,11 +385,11 @@ export class DAOService extends BaseService {
 
           collector.on('collect', async (reaction, user) => {
             console.log('reaction added', reaction, user);
-            this.createPollVote(message.guildId, message.id, user.id, reaction.emoji.name)
+            await this.createPollVote(message.guildId, message.id, user.id, reaction.emoji.name)
             await reaction.users.remove(user)
           });
 
-          this.createPoll(interaction.guildId, message.id, description, until)
+          this.createPoll(interaction.guildId, interaction.channelId, message.id, roleRequired, description, until)
           interaction.editReply(`Your vote has been casted in the current chanel.`)
         } else if ('bounded' === interaction.commandName) {
           await interaction.deferReply()
