@@ -15,10 +15,11 @@ import { AxiosError } from 'axios';
 import { StatisticsService } from '../statistics.extension.service';
 import { ModuleRef } from '@nestjs/core';
 import { providers } from 'src/app.module';
-import { GuildMember, TextBasedChannel } from 'discord.js';
+import { GuildMember, TextBasedChannel, TextChannel, ClientEvents } from 'discord.js';
 import { format } from 'date-fns';
 import { unique } from 'src/utils/array.utils';
 import { decrypt, encrypt } from './crypto';
+import { de } from 'date-fns/locale';
 
 const logger = createLogger('dao.extension.service')
 
@@ -72,6 +73,25 @@ export class DAOService extends BaseService {
         discord_user_id text NOT NULL,
         discord_username text NOT NULL,
         web3_public_key text NOT NULL UNIQUE
+      );`,
+    ).run();
+    this.db.prepare(
+      `CREATE TABLE IF NOT EXISTS polls (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        discord_guild_id text NOT NULL,
+        discord_message_id text NOT NULL,
+        description text NOT NULL,
+        until text NOT NULL
+      );`,
+    ).run();
+    this.db.prepare(
+      `CREATE TABLE IF NOT EXISTS poll_votes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        discord_guild_id text NOT NULL,
+        discord_message_id text NOT NULL,
+        discord_user_id text NOT NULL,
+        vote_value text NOT NULL,
+        voted_at text NOT NULL
       );`,
     ).run();
     this.db.prepare(
@@ -235,19 +255,61 @@ export class DAOService extends BaseService {
     })
   }
 
+  createPoll(guildId:string, messageId:string, description:string, until:Date) {
+    const stmt = this.db.prepare(`
+      INSERT INTO polls (discord_guild_id, discord_message_id, description, until)
+      VALUES (@guildId, @messageId, @description, @until)
+    `)    
+    stmt.run({
+      guildId, messageId, description, until: format(until, "yyyy-MM-dd'T'HH:mm:ss'Z'")
+    })
+  }
+
+  createPollVote(guildId:string, messageId:string, userId:string, value:string) {
+    this.db.prepare(`
+      DELETE FROM poll_votes WHERE 
+      discord_guild_id = @guildId AND
+      discord_message_id = @messageId AND
+      discord_user_id = @userId
+    `).run({
+      guildId, messageId, userId
+    })
+    const stmt = this.db.prepare(`
+      INSERT INTO poll_votes (discord_guild_id, discord_message_id, discord_user_id, vote_value, voted_at)
+      VALUES (@guildId, @messageId, @userId, @value, datetime())
+    `)    
+    stmt.run({
+      guildId, messageId, userId, value
+    })
+  }
+
   async registerCommands() {
     
     const bind = new SlashCommandBuilder()
       .setName('bind')
       .setDescription('Bind your web3 wallet to your discord account')
     
+    const createPoll = new SlashCommandBuilder()
+      .setName('createpoll')
+      .setDescription('Create a new poll')
+      .addStringOption(option => option.setName('description')
+        .setDescription('The message displayed to other users')
+        .setRequired(true))
+      .addIntegerOption(option => option.setName('duration')
+        .setDescription('The duration of the vote (in hours)')
+        .setRequired(true))
+      .addRoleOption(option => option.setName('role')
+        .setDescription('The role required to cast a vote')
+        .setRequired(false))
+
     const bounded = new SlashCommandBuilder()
       .setName('bounded')
       .setDescription('Show the currently web3 wallet bounded to your discord account')
 
     const commands = [
       bind.toJSON(),
-      bounded.toJSON()
+      bounded.toJSON(),
+      createPoll.toJSON()
     ]
     this.getDiscordCommands().push(...commands)
 
@@ -260,6 +322,27 @@ export class DAOService extends BaseService {
             interaction.editReply(`Please ask the admin to setup the encryption key first`)
           }          
           interaction.editReply(`Click here to bind your wallet: http://${config.daoModuleListenAddress}/`)
+        } else if ('createpoll' === interaction.commandName) {
+          await interaction.deferReply()
+          const channel = interaction.channel as TextChannel
+          const description = interaction.options.get('description')?.value?.toString()
+          const duration = interaction.options.get('duration')?.value
+          const until = new Date()
+          until.setTime(new Date().getTime() + duration*60*60*1000)
+          const message = await channel.send(`🗳️ • An admin just posted a new vote:\n—\n${description}\n—\nReact below to vote until the ${until.toLocaleDateString()} ${until.toLocaleTimeString()}`)
+
+          await message.react('👍')
+          await message.react('👎')
+          let collector = message.createReactionCollector({});
+
+          collector.on('collect', async (reaction, user) => {
+            console.log('reaction added', reaction, user);
+            this.createPollVote(message.guildId, message.id, user.id, reaction.emoji.name)
+            await reaction.users.remove(user)
+          });
+
+          this.createPoll(interaction.guildId, message.id, description, until)
+          interaction.editReply(`Your vote has been casted in the current chanel.`)
         } else if ('bounded' === interaction.commandName) {
           await interaction.deferReply()
           const users = this.getUsersByDiscordUserId(interaction.user.id.toString())
@@ -279,6 +362,7 @@ export class DAOService extends BaseService {
     }
     this.getDiscordInteractionsListeners().push(listener)
   }
+
   getUsersByDiscordUserId(id: string) {
     if (config.dao_requires_encryption_key) {
       // TODO handle guild id
@@ -299,6 +383,7 @@ export class DAOService extends BaseService {
     }
     return rows
   }
+
   getUserByWeb3Wallet(wallet: string) {
     if (config.dao_requires_encryption_key) {
       // TODO handle guild id

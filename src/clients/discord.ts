@@ -28,7 +28,7 @@ export default class DiscordClient {
 
   init(callback:Function=undefined) {
     if (!process.env.DISCORD_TOKEN) return;
-    this.client = new Client({ intents: ['GUILD_MEMBERS', 'MESSAGE_CONTENT'] });
+    this.client = new Client({ intents: ['GUILD_MESSAGE_REACTIONS', 'GUILD_MEMBERS', 'MESSAGE_CONTENT'] });
     this.client.once('ready', async (c) => {
       const channels = config.discord_channels.split(',');
       for (let channel of channels)

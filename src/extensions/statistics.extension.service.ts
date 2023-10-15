@@ -19,6 +19,7 @@ import { unique } from '../utils/array.utils';
 import { providers } from 'src/app.module';
 import { DAOService } from './dao/dao.extension.service';
 import { ModuleRef } from '@nestjs/core';
+import { Interaction } from 'discord.js';
 
 const logger = createLogger('statistics.service')
 
@@ -170,7 +171,7 @@ export class StatisticsService extends BaseService {
     }
     this.getDiscordCommands().push(...commands)
 
-    const interaction = async (interaction) => {
+    const interaction = async (interaction:Interaction) => {
       try {
         if (!interaction.isCommand()) return;
         if ('sample' === interaction.commandName) {
