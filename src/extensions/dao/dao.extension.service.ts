@@ -6,7 +6,7 @@ import { createLogger } from "src/logging.utils";
 import Database from 'better-sqlite3'
 import { REST } from '@discordjs/rest';
 import { config } from '../../config';
-import { Routes } from 'discord-api-types/v9'
+import { PermissionFlagsBits, Routes } from 'discord-api-types/v9'
 import { ethers } from 'ethers';
 import { BindRequestDto } from './models';
 import { SignatureError } from './errors';
@@ -15,7 +15,7 @@ import { AxiosError } from 'axios';
 import { StatisticsService } from '../statistics.extension.service';
 import { ModuleRef } from '@nestjs/core';
 import { providers } from 'src/app.module';
-import { GuildMember, TextBasedChannel, TextChannel, ClientEvents } from 'discord.js';
+import { GuildMember, TextBasedChannel, TextChannel, ClientEvents, Interaction, Message } from 'discord.js';
 import { format } from 'date-fns';
 import { unique } from 'src/utils/array.utils';
 import { decrypt, encrypt } from './crypto';
@@ -43,6 +43,7 @@ export class DAOService extends BaseService {
     
     this.discordClient.init(() => {
       this.registerCommands()
+      this.rebindActivePolls()
       this.start()
 
       if (config.dao_roles.length) {
@@ -50,6 +51,15 @@ export class DAOService extends BaseService {
         setTimeout(() => this.handleEndedPolls(), 5000)
       }
     })
+  }
+
+  async rebindActivePolls() {
+    const polls = this.getActivePolls()
+    for (const poll of polls) {
+      const channel = await this.discordClient.client.channels.cache.get(poll.discord_channel_id) as TextChannel;
+      const voteMessage = await channel.messages.fetch(poll.discord_message_id)
+      this.bindReactionCollector(voteMessage)
+    }
   }
 
   async start() {
@@ -236,6 +246,12 @@ export class DAOService extends BaseService {
     }
     logger.info('cleaned grace periods')
   }
+  getActivePolls() {
+    return this.db.prepare(`
+      SELECT * FROM polls
+      WHERE until > datetime() AND revealed = FALSE
+    `).all()
+  }
 
   async handleEndedPolls() {
     const stmt = this.db.prepare(`
@@ -245,12 +261,7 @@ export class DAOService extends BaseService {
     const all = stmt.all()
     for (const row of all) {
       console.log(row)
-      const votesStmt = this.db.prepare(`
-        SELECT vote_value, count(*) as count FROM poll_votes
-        WHERE discord_message_id = @messageId
-        group by 1
-      `)  
-      const votes = votesStmt.all({messageId: row.discord_message_id})
+      const votes = this.getPollResults(row.discord_message_id)
       let message = `Vote ended, description: \n> ${row.description}\n\nResults:\n—\n`
       votes.forEach(vote => {
         message += `${vote.vote_value}\t${vote.count}\n`
@@ -258,7 +269,6 @@ export class DAOService extends BaseService {
       message += `—\nVote ID: ${row.discord_message_id}\n`
       
       const channel = await this.discordClient.client.channels.cache.get(row.discord_channel_id) as TextChannel;
-      console.log(channel)
       const voteMessage = await channel.messages.fetch(row.discord_message_id)
       await voteMessage.edit(message)
       await voteMessage.reactions.removeAll()
@@ -266,6 +276,15 @@ export class DAOService extends BaseService {
     }
     logger.info('cleaned end polls')
     setTimeout(() => this.handleEndedPolls(), 60000*10)
+  }
+
+  getPollResults(discord_message_id: any) {
+    const votesStmt = this.db.prepare(`
+        SELECT vote_value, count(*) as count FROM poll_votes
+        WHERE discord_message_id = @messageId
+        group by 1
+      `)  
+    return votesStmt.all({messageId: discord_message_id})
   }
 
   removeGracePeriod(guildId: string, userId: string, roleId: string) {
@@ -339,6 +358,7 @@ export class DAOService extends BaseService {
     const createPoll = new SlashCommandBuilder()
       .setName('createpoll')
       .setDescription('Create a new poll')
+      .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
       .addStringOption(option => option.setName('description')
         .setDescription('The message displayed to other users')
         .setRequired(true))
@@ -349,6 +369,19 @@ export class DAOService extends BaseService {
         .setDescription('The role required to cast a vote')
         .setRequired(false))
 
+      const pollResults = new SlashCommandBuilder()
+        .setName('pollresults')
+        .setDescription('Get poll results')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+        .addStringOption(option => option.setName('id')
+          .setDescription('The poll ID')
+          .setRequired(true))
+
+      const listActivePolls = new SlashCommandBuilder()
+        .setName('listpolls')
+        .setDescription('List active polls')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+
     const bounded = new SlashCommandBuilder()
       .setName('bounded')
       .setDescription('Show the currently web3 wallet bounded to your discord account')
@@ -356,11 +389,13 @@ export class DAOService extends BaseService {
     const commands = [
       bind.toJSON(),
       bounded.toJSON(),
-      createPoll.toJSON()
+      createPoll.toJSON(),
+      pollResults.toJSON(),
+      listActivePolls.toJSON()
     ]
     this.getDiscordCommands().push(...commands)
 
-    const listener = async (interaction) => {
+    const listener = async (interaction:Interaction) => {
       try {
         if (!interaction.isCommand()) return;
         if ('bind' === interaction.commandName) {
@@ -369,25 +404,40 @@ export class DAOService extends BaseService {
             interaction.editReply(`Please ask the admin to setup the encryption key first`)
           }          
           interaction.editReply(`Click here to bind your wallet: http://${config.daoModuleListenAddress}/`)
+        } else if ('listpolls' === interaction.commandName) {
+          await interaction.deferReply({ephemeral: true})
+          const polls = this.getActivePolls()
+          let response = `Active polls: \n—\n`
+          polls.forEach(poll => {
+            response += `Link: https://discord.com/channels/${poll.discord_guild_id}/${poll.discord_channel_id}/${poll.discord_message_id}\n`
+            response += `ID: ${poll.discord_message_id}\n`
+            response += `Until: ${poll.until}\n`
+            response += `Description: \n\n> ${poll.description}\n\n`
+            response += `—\n`
+          });
+          interaction.editReply(response)
+        } else if ('pollresults' === interaction.commandName) {
+          await interaction.deferReply({ephemeral: true})
+          const messageId = interaction.options.get('id')?.value as string
+          const votes = this.getPollResults(messageId)
+          let response = `Current results:\n—\n`
+          votes.forEach(vote => {
+            response += `${vote.vote_value}\t${vote.count}\n`
+          });
+          interaction.editReply(response)
         } else if ('createpoll' === interaction.commandName) {
           await interaction.deferReply()
           const channel = interaction.channel as TextChannel
           const description = interaction.options.get('description')?.value?.toString()
-          const duration = interaction.options.get('duration')?.value
-          const roleRequired = interaction.options.get('role')?.value
+          const duration = interaction.options.get('duration')?.value as number
+          const roleRequired = interaction.options.get('role')?.value as string
           const until = new Date()
           until.setTime(new Date().getTime() + duration*60*60*1000)
           const message = await channel.send(`🗳️ • An admin just posted a new vote:\n—\n${description}\n—\nReact below to vote until the ${until.toLocaleDateString()} ${until.toLocaleTimeString()}`)
 
           await message.react('👍')
           await message.react('👎')
-          let collector = message.createReactionCollector({});
-
-          collector.on('collect', async (reaction, user) => {
-            console.log('reaction added', reaction, user);
-            await this.createPollVote(message.guildId, message.id, user.id, reaction.emoji.name)
-            await reaction.users.remove(user)
-          });
+          this.bindReactionCollector(message)
 
           this.createPoll(interaction.guildId, interaction.channelId, message.id, roleRequired, description, until)
           interaction.editReply(`Your vote has been casted in the current chanel.`)
@@ -409,6 +459,16 @@ export class DAOService extends BaseService {
       }
     }
     this.getDiscordInteractionsListeners().push(listener)
+  }
+  
+  bindReactionCollector(message: Message) {
+    let collector = message.createReactionCollector({});
+
+    collector.on('collect', async (reaction, user) => {
+      console.log('reaction added', reaction, user);
+      await this.createPollVote(message.guildId, message.id, user.id, reaction.emoji.name)
+      await reaction.users.remove(user)
+    });
   }
 
   getUsersByDiscordUserId(id: string) {
